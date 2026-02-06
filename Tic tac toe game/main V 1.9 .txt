@@ -1,0 +1,570 @@
+-----------------------------------------------------------------------------------------
+-- main.lua
+-----------------------------------------------------------------------------------------
+
+-- Variables for game state
+local EMPTY, X, O = 0, 1, 2
+local board, moves = {}, {}
+local whichTurn, gameMode, gameOver = X, "easy", false
+local textObjects = {}
+local winText -- Declare a global variable to track the winner notification
+
+-- Initialize score variables
+local xWins, oWins, cWins, draws = 0, 0, 0, 0
+
+-- Display texts for scores
+local xScoreText, oScoreText, cScoreText, drawScoreText
+
+-- Create the Score Reset button (initially visible)
+local scoreResetButton = display.newText("Reset Scores", display.contentCenterX, 35, native.systemFont, 15)
+scoreResetButton:setFillColor(1, 0.5, 0) -- Orange color for score reset button
+
+-- Initialize audio variables
+local backgroundMusic
+local musicChannel
+local isMusicMuted = false
+
+-- Load the background music (add the actual file path of your music here)
+backgroundMusic = audio.loadStream("Datakrash (Savant) -Insane.mp3")
+
+-- Play the background music in a loop
+musicChannel = audio.play(backgroundMusic, {loops = -1, channel = 1})
+
+-- Function to mute/unmute music
+local function toggleMusicMute()
+    if isMusicMuted then
+        -- Unmute music
+        audio.setVolume(1, {channel = 1})
+        isMusicMuted = false
+        muteButton.isVisible = true
+        unmuteButton.isVisible = false
+    else
+        -- Mute music
+        audio.setVolume(0, {channel = 1})
+        isMusicMuted = true
+        muteButton.isVisible = false
+        unmuteButton.isVisible = true
+    end
+end
+
+-- Load the background module
+local backgroundModule = require("background")
+local startBackgroundAnimation = backgroundModule.startBackgroundAnimation
+local stopBackgroundAnimation = backgroundModule.stopBackgroundAnimation
+
+-- Menu Group for the UI
+local menuGroup = display.newGroup()
+
+-- Create the background group and start animation
+local backgroundGroup = startBackgroundAnimation()
+menuGroup:insert(backgroundGroup)
+
+-- Create menu title
+local menuTitle = display.newText(menuGroup, "Tic Tac Toe", display.contentCenterX, 70, native.systemFont, 40)
+menuTitle:setFillColor(1)
+
+-- Create Play Game and Hard Mode buttons
+local playButton = display.newText(menuGroup, "Play Game", display.contentCenterX, 200, native.systemFont, 30)
+playButton:setFillColor(1)
+
+local hardModeButton = display.newText(menuGroup, "Hard Mode", display.contentCenterX, 250, native.systemFont, 30)
+hardModeButton:setFillColor(1, 0, 0)
+
+-- Create Co-op and Co-op with Computer buttons
+local coopButton = display.newText(menuGroup, "Co-op", display.contentCenterX, 300, native.systemFont, 30)
+coopButton:setFillColor(0, 1, 0)
+
+local coopCompButton = display.newText(menuGroup, "Co-op with Computer", display.contentCenterX, 350, native.systemFont, 30)
+coopCompButton:setFillColor(1, 1, 0)
+
+-- Create the back button (initially hidden)
+local backButton = display.newText("Menu", display.contentWidth - 85, display.contentHeight - 50, native.systemFont, 24)
+backButton:setFillColor(1, 0, 0) -- Red color for the back button
+backButton.isVisible = false -- Hide the back button initially
+
+-- Create Reset Button (initially hidden)
+local resetButton = display.newText("Reset", display.contentWidth - 220, display.contentHeight - 50, native.systemFont, 25)
+resetButton:setFillColor(0, 1, 0) -- Green color for reset button
+resetButton.isVisible = false -- Hide the reset button initially
+
+-- Create mute and unmute buttons (initially show mute button)
+muteButton = display.newText("Mute", display.contentWidth - 290, display.contentHeight - 40, native.systemFont, 15)
+unmuteButton = display.newText("Unmute", display.contentWidth - 290, display.contentHeight - 40, native.systemFont, 15)
+
+muteButton:setFillColor(1, 0, 0) -- Red color for mute button
+unmuteButton:setFillColor(0, 1, 0) -- Green color for unmute button
+
+unmuteButton.isVisible = false -- Initially hide unmute button
+
+-- Add event listeners to mute and unmute buttons
+muteButton:addEventListener("tap", toggleMusicMute)
+unmuteButton:addEventListener("tap", toggleMusicMute)
+
+-- Ensure mute/unmute buttons are visible on all screens
+local function ensureMusicButtonsOnTop()
+    muteButton:toFront()
+    unmuteButton:toFront()
+end
+
+local boardLines = {} -- Track all lines in a table
+
+-- Function to initialize the score display texts
+local function initializeScoreTexts()
+    -- Remove old texts if they exist
+    if xScoreText then xScoreText:removeSelf(); xScoreText = nil end
+    if oScoreText then oScoreText:removeSelf(); oScoreText = nil end
+    if cScoreText then cScoreText:removeSelf(); cScoreText = nil end
+    if drawScoreText then drawScoreText:removeSelf(); drawScoreText = nil end
+
+    -- Create new score display texts
+    xScoreText = display.newText("X Wins: " .. xWins, display.contentWidth - 205, 20, native.systemFont, 15)
+    oScoreText = display.newText("O Wins: " .. oWins, display.contentWidth - 125, 20, native.systemFont, 15)
+    cScoreText = display.newText("C Wins: " .. cWins, display.contentWidth - 50, 20, native.systemFont, 15)
+    drawScoreText = display.newText("Draws: " .. draws, display.contentWidth - 280, 20, native.systemFont, 15)
+
+    -- Set text colors
+    xScoreText:setFillColor(1, 1, 1)
+    oScoreText:setFillColor(1, 1, 1)
+    cScoreText:setFillColor(1, 1, 1)
+    drawScoreText:setFillColor(1, 1, 1)
+end
+
+-- Initialize the score texts at the start
+initializeScoreTexts()
+
+-- Function to update the score texts
+local function updateScoreTexts()
+    xScoreText.text = "X Wins: " .. xWins
+    oScoreText.text = "O Wins: " .. oWins
+    cScoreText.text = "C Wins: " .. cWins
+    drawScoreText.text = "Draws: " .. draws
+end
+
+local function drawBoard()
+    local w20, h20 = display.contentWidth * 0.2, display.contentHeight * 0.2
+    local w40, h40 = display.contentWidth * 0.4, display.contentHeight * 0.4
+    local w60, h60 = display.contentWidth * 0.6, display.contentHeight * 0.6
+    local w80, h80 = display.contentWidth * 0.8, display.contentHeight * 0.8
+    
+    -- Create the lines and add them to the boardLines table
+    local lline = display.newLine(w40, h20, w40, h80)
+    lline.strokeWidth = 5
+    boardLines[#boardLines + 1] = lline
+
+    local rline = display.newLine(w60, h20, w60, h80)
+    rline.strokeWidth = 5
+    boardLines[#boardLines + 1] = rline
+
+    local bline = display.newLine(w20, h40, w80, h40)
+    bline.strokeWidth = 5
+    boardLines[#boardLines + 1] = bline
+
+    local tline = display.newLine(w20, h60, w80, h60)
+    tline.strokeWidth = 5
+    boardLines[#boardLines + 1] = tline
+end
+
+-- Initialize the game board
+local function initBoard()
+    boardLines = {} -- Reinitialize boardLines to an empty table
+    board = {
+        {1, display.contentWidth * 0.2, display.contentHeight * 0.4, display.contentWidth * 0.4, display.contentHeight * 0.2, EMPTY},
+        {2, display.contentWidth * 0.4, display.contentHeight * 0.4, display.contentWidth * 0.6, display.contentHeight * 0.2, EMPTY},
+        {3, display.contentWidth * 0.6, display.contentHeight * 0.4, display.contentWidth * 0.8, display.contentHeight * 0.2, EMPTY},
+        {4, display.contentWidth * 0.2, display.contentHeight * 0.6, display.contentWidth * 0.4, display.contentHeight * 0.4, EMPTY},
+        {5, display.contentWidth * 0.4, display.contentHeight * 0.6, display.contentWidth * 0.6, display.contentHeight * 0.4, EMPTY},
+        {6, display.contentWidth * 0.6, display.contentHeight * 0.6, display.contentWidth * 0.8, display.contentHeight * 0.4, EMPTY},
+        {7, display.contentWidth * 0.2, display.contentHeight * 0.8, display.contentWidth * 0.4, display.contentHeight * 0.6, EMPTY},
+        {8, display.contentWidth * 0.4, display.contentHeight * 0.8, display.contentWidth * 0.6, display.contentHeight * 0.6, EMPTY},
+        {9, display.contentWidth * 0.6, display.contentHeight * 0.8, display.contentWidth * 0.8, display.contentHeight * 0.6, EMPTY}
+    }
+    moves = {}
+    whichTurn = X
+    gameOver = false
+    textObjects = {}
+
+    -- Populate textObjects
+    for i = 1, #board do
+        local centerX = (board[i][2] + board[i][4]) / 2
+        local centerY = (board[i][3] + board[i][5]) / 2
+        local textObject = display.newText("", centerX, centerY, native.systemFont, 40)
+        textObject:setFillColor(1)
+        textObjects[i] = textObject
+    end
+end
+
+-- Now the startGame function (which uses initBoard) can go here
+local function startGame(gameMode)
+    -- Remove the background group
+    if backgroundGroup then
+        backgroundGroup:removeSelf()
+        backgroundGroup = nil
+    end
+
+    -- Transition and setup game board
+    transition.to(menuGroup, {time = 500, alpha = 0, onComplete = function()
+        menuGroup:removeSelf()
+        menuGroup = nil
+        initBoard()
+        drawBoard()
+        resetButton.isVisible = true -- Show reset button after game starts
+        backButton.isVisible = true -- Show back button after game starts
+        Runtime:addEventListener("touch", playerMove)
+    end})
+end
+
+-- Define winPatterns globally before any functions that need it
+local winPatterns = {
+    {1, 2, 3}, {4, 5, 6}, {7, 8, 9},  -- Horizontal wins
+    {1, 4, 7}, {2, 5, 8}, {3, 6, 9},  -- Vertical wins
+    {1, 5, 9}, {3, 5, 7}              -- Diagonal wins
+}
+
+-- Handle win and update score
+local function handleWin(winner)
+    gameOver = true
+    if winText then winText:removeSelf(); winText = nil end
+    local message = ""
+
+    -- Determine win message based on mode and winner
+    if winner == X then
+        xWins = xWins + 1
+        message = "Player X wins!"
+    elseif winner == O then
+        oWins = oWins + 1
+        if gameMode == "coopComp" then
+            cWins = cWins + 1
+            message = "Computer wins!"
+        else
+            message = "Player O wins!"
+        end
+    elseif winner == "draw" then
+        draws = draws + 1
+        message = "It's a draw!"
+    end
+
+    -- Update the display texts for the scores
+    updateScoreTexts()
+
+    -- Display the win/draw message
+    winText = display.newText(message, display.contentCenterX, display.contentCenterY, native.systemFont, 40)
+end
+
+-- Computer Move Logic (Easy Mode)
+local function computerMove()
+    -- Add your logic for computer's move in easy mode
+    local emptyCells = {}
+    for _, cell in ipairs(board) do
+        if cell[6] == EMPTY then
+            table.insert(emptyCells, cell)
+        end
+    end
+    local choice = emptyCells[math.random(#emptyCells)]
+    choice[6] = O
+    textObjects[choice[1]].text = "O" -- Display "O" on the chosen cell
+    whichTurn = X -- Switch back to player's turn
+end
+
+-- Now define playerMove
+local function computerMoveCoopComp()
+    -- Check patterns to block the player
+    for _, pattern in ipairs(winPatterns) do
+        local a, b, c = board[pattern[1]][6], board[pattern[2]][6], board[pattern[3]][6]
+        if a == b and b == X and c == EMPTY then
+            -- Block player's winning move
+            board[pattern[3]][6] = O
+            textObjects[pattern[3]].text = "C"
+            whichTurn = X -- Switch back to the player's turn
+            return
+        end
+    end
+
+    -- If no blocking move, choose a random empty cell
+    local emptyCells = {}
+    for i, cell in ipairs(board) do
+        if cell[6] == EMPTY then
+            table.insert(emptyCells, i)
+        end
+    end
+    local choice = emptyCells[math.random(#emptyCells)]
+    board[choice][6] = O
+    textObjects[choice].text = "C"
+    whichTurn = X -- Switch back to the player's turn
+end
+
+-- Define checkWin function next
+    local function checkWin()
+        local winPatterns = {
+            {1, 2, 3}, {4, 5, 6}, {7, 8, 9},
+            {1, 4, 7}, {2, 5, 8}, {3, 6, 9},
+            {1, 5, 9}, {3, 5, 7}
+        }
+    
+        for _, pattern in ipairs(winPatterns) do
+            local a, b, c = board[pattern[1]][6], board[pattern[2]][6], board[pattern[3]][6]
+            if a ~= EMPTY and a == b and b == c then
+                return a -- Return the winning player (X or O)
+            end
+        end
+    
+        for _, cell in ipairs(board) do
+            if cell[6] == EMPTY then
+                return nil -- Game continues
+            end
+        end
+        return "draw" -- Return draw if no empty cells
+    end
+
+-- Modify the playerMove function to handle game modes properly
+local function playerMove(event)
+    if gameOver then return end
+    if event.phase == "began" then
+        for t = 1, #board do
+            if event.x > board[t][2] and event.x < board[t][4] and event.y > board[t][5] and event.y < board[t][3] then
+                if board[t][6] == EMPTY then
+                    -- Co-op Mode: Alternate turns between X and O
+                    if gameMode == "coop" then
+                        local symbol = (whichTurn == X) and "X" or "O"
+                        board[t][6] = whichTurn
+                        textObjects[t].text = symbol
+                        whichTurn = (whichTurn == X) and O or X
+
+                    -- Co-op with Computer Mode: Handle turns correctly
+                    elseif gameMode == "coopComp" then
+                        local symbol = (whichTurn == X) and "X" or "O"
+                        board[t][6] = whichTurn
+                        textObjects[t].text = symbol
+
+                        -- Alternate turns
+                        if whichTurn == X then
+                            whichTurn = O
+                        else
+                            -- Computer's turn
+                            computerMoveCoopComp()
+                        end
+                    -- Normal or Hard Mode
+                    else
+                        local symbol = (whichTurn == X) and "X" or "O"
+                        board[t][6] = whichTurn
+                        textObjects[t].text = symbol
+                        whichTurn = (whichTurn == X) and O or X  -- Alternate turns
+
+                        -- Check for a winner or let the computer make a move
+                        local winner = checkWin()
+                        if winner then
+                            handleWin(winner)
+                        elseif whichTurn == O then
+                            computerMove()
+                            winner = checkWin()
+                            if winner then handleWin(winner) end
+                        end
+                    end
+
+                    -- Check for win after any move
+                    local winner = checkWin()
+                    if winner then handleWin(winner) end
+                end
+            end
+        end
+    end
+end
+
+    -- Now you can define startGame after playerMove
+    local function startGame(mode)
+        gameMode = mode -- Set the current game mode
+        -- Remove the background group if it exists
+        if backgroundGroup then
+            backgroundGroup:removeSelf()
+            backgroundGroup = nil
+        end
+    
+        -- Transition and setup game board
+        transition.to(menuGroup, {time = 500, alpha = 0, onComplete = function()
+            menuGroup:removeSelf()
+            menuGroup = nil
+            initBoard()
+            drawBoard()
+            resetButton.isVisible = true -- Show reset button after game starts
+            backButton.isVisible = true  -- Show back button after game starts
+    
+            -- Add appropriate listener based on mode
+            if gameMode == "coop" or gameMode == "coopComp" then
+                Runtime:addEventListener("touch", playerMove)
+            else
+                Runtime:addEventListener("touch", playerMove)
+            end
+        end})
+    end
+
+    local function goBackToMenu()
+        -- Stop the background animation before returning to the menu
+        backgroundModule.stopBackgroundAnimation()
+    
+        -- Debugging: Print a message
+        print("Going back to main menu")
+    
+        -- Remove the game board and reset the state
+        if backgroundGroup then
+            backgroundGroup:removeSelf()
+            backgroundGroup = nil
+        end
+    
+        -- Remove text objects (X's and O's)
+        for i = 1, #textObjects do
+            if textObjects[i] then
+                textObjects[i]:removeSelf()
+                textObjects[i] = nil
+            end
+        end
+    
+        -- Remove winText if it exists
+        if winText then
+            winText:removeSelf()
+            winText = nil
+        end
+    
+        -- Remove the game board lines or any other visual elements
+        if boardLines then
+            for _, line in ipairs(boardLines) do
+                if line then
+                    line:removeSelf()
+                end
+            end
+            boardLines = {} -- Ensure it's reset to an empty table
+        end
+        
+        -- Remove any active touch event listeners
+        Runtime:removeEventListener("touch", playerMove)
+    
+        -- Hide the reset and back buttons
+        resetButton.isVisible = false
+        backButton.isVisible = false
+    
+        -- Show the menu again
+        menuGroup = display.newGroup()
+        menuGroup.alpha = 0
+        transition.to(menuGroup, {time = 500, alpha = 1})
+    
+        -- Recreate the background and insert into menu
+        backgroundGroup = backgroundModule.startBackgroundAnimation() -- Ensure that the background is re-created
+        if backgroundGroup then
+            menuGroup:insert(backgroundGroup) -- Only insert if backgroundGroup is valid
+        else
+            print("Error: backgroundGroup is nil")
+        end
+    
+        -- Add the title and buttons back to the menu
+        menuTitle = display.newText(menuGroup, "Tic Tac Toe", display.contentCenterX, 70, native.systemFont, 40)
+        playButton = display.newText(menuGroup, "Play Game", display.contentCenterX, 200, native.systemFont, 30)
+        playButton:setFillColor(1)
+        hardModeButton = display.newText(menuGroup, "Hard Mode", display.contentCenterX, 250, native.systemFont, 30)
+        hardModeButton:setFillColor(1, 0, 0)
+        coopButton = display.newText(menuGroup, "Co-op", display.contentCenterX, 300, native.systemFont, 30)
+        coopButton:setFillColor(0, 1, 0)
+        coopCompButton = display.newText(menuGroup, "Co-op with Computer", display.contentCenterX, 350, native.systemFont, 30)
+        coopCompButton:setFillColor(1, 1, 0)
+    
+        -- Re-add event listeners for menu buttons
+        playButton:addEventListener("tap", function()
+            backgroundModule.stopBackgroundAnimation() -- Stop background before starting the game
+            startGame("normal")
+        end)
+    
+        hardModeButton:addEventListener("tap", function()
+            backgroundModule.stopBackgroundAnimation() -- Stop background before starting the game
+            startGame("hard")
+        end)
+    
+        coopButton:addEventListener("tap", function()
+            backgroundModule.stopBackgroundAnimation() -- Stop background before starting the game
+            startGame("coop")
+        end)
+
+        coopCompButton:addEventListener("tap", function()
+            backgroundModule.stopBackgroundAnimation() -- Stop background before starting the game
+            startGame("coopComp")
+        end)
+    end
+
+-- Function to reset the scores
+local function resetScores()
+    -- Reset score variables to 0
+    xWins, oWins, cWins, draws = 0, 0, 0, 0
+    -- Update the score display texts
+    updateScoreTexts()
+end
+
+-- Add event listener to the score reset button
+scoreResetButton:addEventListener("tap", resetScores)
+
+-- Function to reset the game
+local function resetGame()
+    -- Debugging: Print a message when the reset button is pressed
+    print("Reset button pressed")
+
+    -- Remove touch event listener to prevent conflicts
+    Runtime:removeEventListener("touch", playerMove)
+
+    -- Clear all text objects before reinitializing the board
+    for i = 1, #textObjects do
+        if textObjects[i] then
+            textObjects[i]:removeSelf() -- Remove the display object from the screen
+            textObjects[i] = nil -- Set the reference to nil
+        end
+    end
+
+    -- Remove the winner notification if it exists
+    if winText then
+        winText:removeSelf() -- Remove the winner text from the screen
+        winText = nil -- Set the reference to nil
+    end
+    
+    -- Reinitialize the game board and state
+    initBoard() -- Fully reinitialize the board and textObjects
+    drawBoard() -- Redraw the board
+
+    -- Debugging: Print to check if board reset properly
+    print("Board and text objects reinitialized")
+
+    -- Reset the game state variables
+    gameOver = false -- Set gameOver to false
+    whichTurn = X -- Player X starts the new game
+
+    -- Re-add the touch event listener for player moves
+    timer.performWithDelay(100, function()
+        Runtime:addEventListener("touch", playerMove)
+    end)
+end
+
+-- Event listener for the reset button
+resetButton:addEventListener("tap", resetGame)
+
+-- Event listener for the back button
+backButton:addEventListener("tap", goBackToMenu)
+
+-- Event listeners for play and hard mode buttons
+playButton:addEventListener("tap", function()
+    stopBackgroundAnimation()
+    startGame("normal")
+end)
+
+hardModeButton:addEventListener("tap", function()
+    stopBackgroundAnimation()
+    startGame("hard")
+end)
+
+-- Event listeners for co-op mode buttons
+coopButton:addEventListener("tap", function()
+    stopBackgroundAnimation()
+    startGame("coop")
+end)
+
+coopCompButton:addEventListener("tap", function()
+    stopBackgroundAnimation()
+    startGame("coopComp")
+end)
+
+-- Handle touch events on the menu
+menuGroup:addEventListener("touch", function(event)
+    return true
+end)
